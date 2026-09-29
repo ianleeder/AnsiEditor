@@ -1,0 +1,1 @@
+jar -cvfm AnsiEditor.jar manifest *.class *.java *.ANS
