@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "*.ans": "snippets"
+    },
+    "[snippets]": {
+        "files.encoding": "cp437"
+    },
+}
