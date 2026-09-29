@@ -1,21 +1,20 @@
-import javax.swing.JTextPane;
+import javax.swing.*;
 import javax.swing.text.*;
-import java.awt.Color;
-import java.awt.Font;
-import java.awt.Dimension;
+import java.awt.*;
+import java.awt.event.*;
 import java.io.*;
 
-public class AnsiRenderer extends JTextPane
+public class AnsiRenderer extends JPanel
 {
     private static final int DEFAULT_ROWS = 25;
     private static final int DEFAULT_COLUMNS = 80;
     
-    public static final String NEWLINE = System.getProperty("line.separator");
+    public static final String NEWLINE = "\r\n"; // I don't plan on displaying this in Linux atm System.getProperty("line.separator");
     
     private static final String ASCII_ENCODING_SCHEME = "cp437";
     private static final String ESCAPE_CHAR = getStringFromAscii(""+(char)0x1B); // I know the ascii esc char, not sure about unicode char
     
-    private static final Font SYSTEM_FONT = new Font("Courier New", Font.PLAIN, 13);
+    public static final Font SYSTEM_FONT = new Font("Courier New", Font.PLAIN, 13);
     
     public static final Color[][] COLORS ={{new Color(0,0,0), new Color(128,128,128)},         // black, light black (gray)
                                            {new Color(128,0,0), new Color(255,0,0)},           // dark red, red
@@ -31,15 +30,39 @@ public class AnsiRenderer extends JTextPane
     
     private int fgColor, bgColor;
     private boolean isBright;
+    private JTextPane textPane;
+    private JLabel sampleLabel;
     
     public AnsiRenderer()
     {
-        setPreferredSize(new Dimension(650,400));
-        setFont(SYSTEM_FONT);
-        setBackground(Color.BLACK);
-        setEditable(true);
+        setLayout(new BorderLayout(5,5));
         
-        StyledDocument styledDoc = getStyledDocument();
+        textPane = new JTextPane();
+        textPane.setPreferredSize(new Dimension(700,400));
+        textPane.setFont(SYSTEM_FONT);
+        textPane.setBackground(Color.BLACK);
+        textPane.setEditable(true);
+        
+        // dodgy fix
+        // input from the keyboard was not being entered with the current attribute set
+        // but rather with the attributes of the previous char
+        // this way I consume the event and input the char manually
+        textPane.addKeyListener(new KeyListener()
+        {
+            public void keyPressed(KeyEvent e) {}
+            public void keyReleased(KeyEvent e) {}
+            
+            public void keyTyped(KeyEvent e)
+            {
+                if(e.getKeyCode() >= ' ') // lowest printable char.  Printing and consuming backspace/del is bad, hmmkay
+                {
+                    insertString(""+e.getKeyChar());
+                    e.consume();
+                }
+            }
+        });
+        
+        StyledDocument styledDoc = textPane.getStyledDocument();
         if (styledDoc instanceof AbstractDocument)
         {
             doc = (AbstractDocument)styledDoc;
@@ -51,9 +74,18 @@ public class AnsiRenderer extends JTextPane
         }
         
         attributes = new SimpleAttributeSet();
+        
+        textPane.setCaretPosition(0);
+        textPane.setCaretColor(Color.WHITE);
+        
+        sampleLabel = new JLabel("This is a sample text with your chosen colors");
+        sampleLabel.setFont(SYSTEM_FONT);
+        sampleLabel.setOpaque(true);
+        
         resetColor();
-        setCaretPosition(0);
-        setCaretColor(Color.WHITE);
+        
+        add(new JScrollPane(textPane), "Center");
+        add(sampleLabel, "South");
     }
     
     public void setForeground(int n, boolean bright)
@@ -61,8 +93,9 @@ public class AnsiRenderer extends JTextPane
         if(n<0 || n>=COLORS.length)
             throw new IllegalArgumentException("Invalid color index: " + n);
         
-        StyleConstants.setForeground(attributes, COLORS[n][bright?1:0]);
-        setCharacterAttributes(attributes, false);
+        fgColor = n;
+        isBright = bright;
+        applyColor();
     }
     
     public void setBackground(int n)
@@ -70,8 +103,18 @@ public class AnsiRenderer extends JTextPane
         if(n<0 || n>=COLORS.length)
             throw new IllegalArgumentException("Invalid color index: " + n);
         
-        StyleConstants.setBackground(attributes, COLORS[n][0]);
-        setCharacterAttributes(attributes, false);
+        bgColor = n;
+        applyColor();
+    }
+    
+    public Color getChosenForeground()
+    {
+        return StyleConstants.getForeground(attributes);
+    }
+    
+    public Color getChosenbackground()
+    {
+        return StyleConstants.getBackground(attributes);
     }
     
     public void clearText()
@@ -84,6 +127,11 @@ public class AnsiRenderer extends JTextPane
         {
             System.err.println("Couldn't clear the text.");
         }
+    }
+    
+    public void requestFocus()
+    {
+        textPane.requestFocus();
     }
     
     public void renderText(String s)
@@ -104,20 +152,14 @@ public class AnsiRenderer extends JTextPane
                 parseColorTag(tokens[i].substring(0, index));
             
             String toInsert = tokens[i].substring(index+1);
-            int caretPos = getCaretPosition();
+            int caretPos = textPane.getCaretPosition();
             insertString(getStringFromAscii(toInsert));
-            
-            // bit of a dodgy fix
-            // it seems to not update caret position correctly after inserting whitespace
-            // so inserting whitespace, then chars, then more whitespace is displayed incorrectly
-            int pos = java.lang.Math.min(caretPos+toInsert.length(), doc.getLength());
-            setCaretPosition(pos);
         }
     }
     
     private void insertString(String s)
     {
-        insertString(getCaretPosition(), s);
+        insertString(textPane.getCaretPosition(), s);
     }
     
     private void insertString(int index, String s)
@@ -134,8 +176,9 @@ public class AnsiRenderer extends JTextPane
     
     public String getText()
     {
-        StringBuffer toReturn = new StringBuffer();
+        StringBuffer toReturn = new StringBuffer(ESCAPE_CHAR + "[0m");
         SimpleAttributeSet curAttribs;
+        String lastAnsiCode = null;
         
         try
         {
@@ -154,8 +197,17 @@ public class AnsiRenderer extends JTextPane
                     int length = subElement.getEndOffset() - subElement.getStartOffset();
                     
                     String ansiCode = getAnsiCode(fg, bg);
-                    toReturn.append(ansiCode);
-                    toReturn.append(doc.getText(start, length));
+                    
+                    // if the last code was null (ie, first run)
+                    // or the current code is DIFFERENT from the last code
+                    // include it
+                    if(lastAnsiCode==null || !ansiCode.equals(lastAnsiCode))
+                        toReturn.append(ansiCode);
+                    
+                    String text = doc.getText(start, length);
+                    text = text.replaceAll("\\r?\\n", NEWLINE);
+                    toReturn.append(text);
+                    lastAnsiCode = ansiCode;
                 }
             }
         }
@@ -215,6 +267,11 @@ public class AnsiRenderer extends JTextPane
     {
         StyleConstants.setBackground(attributes, COLORS[bgColor][0]);
         StyleConstants.setForeground(attributes, COLORS[fgColor][isBright?1:0]);
+        textPane.setCharacterAttributes(attributes, false);
+        //textPane.setParagraphAttributes(attributes, false);
+        
+        sampleLabel.setBackground(COLORS[bgColor][0]);
+        sampleLabel.setForeground(COLORS[fgColor][isBright?1:0]);
     }
     
     // stripped of <esc> and m

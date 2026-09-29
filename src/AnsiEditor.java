@@ -5,28 +5,43 @@ import java.io.*;
 
 public class AnsiEditor extends JFrame implements ActionListener
 {
-    private static final String ABOUT_STRING = "ANSI ASCII editor by Ian Leeder" + AnsiRenderer.NEWLINE +
-                                               "It's exceedingly difficult to get this text component (JTextPane) to show line/column numbers, " + AnsiRenderer.NEWLINE +
-                                               "so you'll have to play it by ear.  It's a feature I wanted too." + AnsiRenderer.NEWLINE +
+    private static final String VERSION = "v1.01";
+    private static final String ABOUT_STRING = "ANSI ASCII Editor " + VERSION + " by Ian Leeder" + AnsiRenderer.NEWLINE +
+                                               AnsiRenderer.NEWLINE +
+                                               "It's exceedingly difficult to get this text component (JTextPane) to show line/column numbers, " +
+                                               "so you'll have to play it by ear.  It's a feature I want too.  Maybe in the future." + AnsiRenderer.NEWLINE +
                                                AnsiRenderer.NEWLINE +
                                                "This page taught me all I needed to know about ANSI (however I only bothered implemented color control)" + AnsiRenderer.NEWLINE +
                                                "http://www.termsys.demon.co.uk/vtansi.htm" + AnsiRenderer.NEWLINE +
                                                AnsiRenderer.NEWLINE +
                                                "Any bugs/complaints/compliments can be mailed to me at" + AnsiRenderer.NEWLINE +
-                                               "i_leeder@hotmail.com";
+                                               "i_leeder@hotmail.com" + AnsiRenderer.NEWLINE +
+                                               AnsiRenderer.NEWLINE +
+                                               "Version history:" + AnsiRenderer.NEWLINE +
+                                               AnsiRenderer.NEWLINE +
+                                               "Version 1.01" + AnsiRenderer.NEWLINE +
+                                               "- Changed button fonts to match rendered fonts" + AnsiRenderer.NEWLINE +
+                                               "- Added capability to capture keyboard entry and use the chosen colors" + AnsiRenderer.NEWLINE +
+                                               "- Changed buttons to radio buttons, and added a sample text to see current colours" + AnsiRenderer.NEWLINE +
+                                               "- Improved algorithm for insertion of ansi codes" + AnsiRenderer.NEWLINE +
+                                               "- Fixed a problem with newline characters" + AnsiRenderer.NEWLINE +
+                                               "- Improved \"About\" window :)" + AnsiRenderer.NEWLINE +
+                                               "- Added \"reset cursor\" ansi code to the start of each file produced... safety measure";
     
     private static final Dimension GRID_ELEMENT_DIMENSION = new Dimension(10,10);
     private static final Insets NO_INSET = new Insets(0,0,0,0);
+    private static final Insets FIVE_INSET = new Insets(5,5,5,5);
     private AnsiRenderer renderer;
     
     private JMenuItem aboutMenuItem, clearMenuItem, openMenuItem, saveMenuItem, saveAsMenuItem, exitMenuItem;
     private File saveFile = null;
     private boolean isSaved = true;
     private JFileChooser chooser;
+    private JScrollPane aboutScrollPane;
     
     public AnsiEditor()
     {
-        setTitle("Ian's super-sexy ASCII ANSI EDITOR");
+        setTitle("ANSI ASCII Editor " + VERSION);
         
         this.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter()
@@ -36,6 +51,15 @@ public class AnsiEditor extends JFrame implements ActionListener
                     exit();
                 }
             });
+        
+        JTextArea jta = new JTextArea(ABOUT_STRING);
+        jta.setEditable(false);
+        jta.setLineWrap(true);
+        jta.setWrapStyleWord(true);
+        jta.setMargin(FIVE_INSET);
+        
+        aboutScrollPane = new JScrollPane(jta);
+        aboutScrollPane.setPreferredSize(new Dimension(400,300));
         
         chooser = new JFileChooser();
         chooser.setMultiSelectionEnabled(false);
@@ -97,18 +121,26 @@ public class AnsiEditor extends JFrame implements ActionListener
         String[] headings = {"Background", "Foreground", "FG bright"};
         JPanel colorPanel = new JPanel(new GridLayout(3,AnsiRenderer.COLORS.length,2,2));
         
+        ButtonGroup bg = new ButtonGroup();
+        
         for(int j=0;j<3;j++)
         {
+            if(j==1)
+                bg = new ButtonGroup();
+            
             for(int i=0;i<AnsiRenderer.COLORS.length;i++)
             {
                 if(i==0)
                     colorPanel.add(new JLabel(headings[j]));
                 
-                JButton b = new JButton();
-                b.addActionListener(new ChooseColorAction(renderer, i, (j==2), (j!=0)));
-                b.setBackground(AnsiRenderer.COLORS[i][(j==2?1:0)]);
-                b.setMargin(NO_INSET);
-                colorPanel.add(b);
+                JRadioButton rb = new JRadioButton("", ((j==0&&i==0) || (j!=0&&i==7)));
+                rb.addActionListener(new ChooseColorAction(renderer, i, (j==2), (j!=0)));
+                rb.setBackground(AnsiRenderer.COLORS[i][(j==2?1:0)]);
+                rb.setMargin(NO_INSET);
+                
+                bg.add(rb);
+                
+                colorPanel.add(rb);
             }
         }
         
@@ -132,6 +164,7 @@ public class AnsiEditor extends JFrame implements ActionListener
             JButton b = new JButton(""+ascii.charAt(i));
             b.addActionListener(new InsertCharacterAction(renderer, (char)i));
             b.setMargin(NO_INSET);
+            b.setFont(AnsiRenderer.SYSTEM_FONT);
             characterPanel.add(b);
         }
         
@@ -146,7 +179,7 @@ public class AnsiEditor extends JFrame implements ActionListener
             exit();
         
         if(src == aboutMenuItem)
-            JOptionPane.showMessageDialog(this, ABOUT_STRING, "About", JOptionPane.INFORMATION_MESSAGE);
+            showAbout();
         
         if(src == saveMenuItem)
         {
@@ -163,7 +196,15 @@ public class AnsiEditor extends JFrame implements ActionListener
             open();
             
         if(src == clearMenuItem)
+        {
+            saveFile = null;
             renderer.clearText();
+        }
+    }
+    
+    private void showAbout()
+    {
+        JOptionPane.showMessageDialog(this, aboutScrollPane, "About", JOptionPane.INFORMATION_MESSAGE);
     }
     
     private void save()
